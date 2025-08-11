@@ -40,6 +40,8 @@ def drop_feats(dataset , feats_list , column_categories):
         dataset = dataset.drop(feat , axis = 1)
         del column_categories[feat]
 
+    return dataset
+
 def numerical_fillna(dataset , feats_list):
     
     for feat in feats_list :
@@ -96,21 +98,22 @@ def merge_into_super_feat(dataset , feats_dict , column_categories):
         method = feats_dict[feats_tuple][0]
         super_feat_name = feats_dict[feats_tuple][1]
         if method == "Mean" : 
-            dataset[super_feat_name] = merge_by_mean(feats_tuple)
+            dataset[super_feat_name] = merge_by_mean(dataset , feats_tuple)
         else :
-            dataset[super_feat_name] = merge_by_pca(feats_tuple)
+            dataset[super_feat_name] = merge_by_pca(dataset ,feats_tuple)
         quantile_binning(dataset , {super_feat_name : 4} , column_categories)
-        drop_feats(dataset , feats_tuple)
+        dataset = drop_feats(dataset , feats_tuple , column_categories)
+    return dataset
 
 
 def dataset_preprocessing(drop_feats_list,numerical_fillna_feats_list,skewed_feats_list,quantile_feats_dict,equal_width_feats_dict,merging_feats_dict):
     
     dataset , column_categories = load_dataset()
-    drop_feats(dataset , drop_feats_list , column_categories)
+    dataset = drop_feats(dataset , drop_feats_list , column_categories)
     encode_feats(dataset)
     numerical_fillna(dataset , numerical_fillna_feats_list)
     skew_reduction(dataset , skewed_feats_list)
     quantile_binning(dataset , quantile_feats_dict , column_categories)
     equal_width_binning(dataset , equal_width_feats_dict , column_categories)
-    merge_into_super_feat(dataset , merging_feats_dict , column_categories)
+    dataset = merge_into_super_feat(dataset , merging_feats_dict , column_categories)
     return dataset , column_categories
