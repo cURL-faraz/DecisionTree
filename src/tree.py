@@ -147,11 +147,34 @@ class DecisionTree :
         else :
             return vertex.output_class 
 
-    def prediction(self , test_data):
+    def predict(self , test_data_X):
         
         predictions = [] 
 
-        for _ , sample in test_data.iterrows():
+        for _ , sample in test_data_X.iterrows():
             predictions.append(self.tree_traverse(sample , self.root))
 
         return pd.Series(predictions)
+    
+    def cal_precision(self , predictions , test_data_Y):
+        
+        TP = (predictions & test_data_Y).sum()
+        FP = ((predictions ^ test_data_Y) & predictions).sum()
+        return TP / (TP + FP)
+    
+    def cal_recall(self , predictions , test_data_Y):
+        
+        TP = (predictions & test_data_Y).sum()
+        FN = ((predictions ^ test_data_Y) & test_data_Y).sum()
+        return TP / (TP + FN)
+    
+    def F1_evaluation(self , test_data ):
+        
+        test_data_Y = test_data['satisfaction']
+        test_data_X = test_data.drop(["satisfaction"] , axis = 1)
+        predictions = self.predict(test_data_X)
+        Precision = self.cal_precision(predictions , test_data_Y)
+        Recall = self.cal_recall(predictions , test_data_Y)
+        return 2 * Precision * Recall / (Precision + Recall )
+
+
