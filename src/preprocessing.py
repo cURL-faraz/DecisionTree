@@ -98,6 +98,7 @@ def dataset_preprocessing(drop_feats_list,numerical_fillna_feats_list,skewed_fea
     quantile_binning(dataset , quantile_feats_dict)
     equal_width_binning(dataset , equal_width_feats_dict)
     merge_into_super_feat(dataset , merging_feats_dict)
+    return dataset
 
 
 
