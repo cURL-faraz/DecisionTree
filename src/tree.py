@@ -4,23 +4,21 @@ import pandas as pd
 
 class Node :
     
-    def __init__(self,depth,data = None , feats_dict = None):
-        
-        self.feats_dict = feats_dict
-        self.data = data
+    def __init__(self , feats_dict , depth , parent ):
+
+        self.feats_dict = feats_dict 
         self.depth = depth 
+        self.parent = parent  
         self.child = {}
         self.selected_feat = None
-        self.gini = float('inf')
-        self.gain = 0 
-    
+        self.crit = {"gini" : float('inf') , 'gain' : float('-inf')}
+
 class DecisionTree : 
     
     def __init__(self):
         
-        self.root = Node(0)
-        self.nodes = {0 : [self.root]}
         self.num_leaf = 0 
+        self.nodes = {}
 
     def add_node(self , vertex) :
         
@@ -43,16 +41,15 @@ class DecisionTree :
     
     def soft_max_leaf_nodes_check(self):
 
-        return self.num_leaf + 1 <= self.hyper_params["soft_max_leaf_nodes"]
+        return (self.hyper_params["soft_max_leaf_nodes"] is None) or (self.num_leaf < self.hyper_params["soft_max_leaf_nodes"])
     
     def soft_min_samples_leaf(self , child_data):
 
         return child_data.shape[0] >= self.hyper_params["soft_min_samples_leaf"]
     
-    def valid_leaf_check(self , parent , child_data , child_depth):
+    def possible_valid_child(self , parent , child_data , child_depth):
         
         if self.impurity_check(child_data) and self.depth_check(child_depth) and self.min_split_check(child_data) and len(parent.feats_dict.keys()) > 1:
-            # exception :(
             return True 
         else :
             return self.soft_max_leaf_nodes_check() and self.soft_min_samples_leaf(child_data)
@@ -71,77 +68,76 @@ class DecisionTree :
         prob_df['satisfaction'] *= np.log2(prob_df['satisfaction'])
         return (-1) * (prob_df['satisfaction'].sum())
     
-    def cal_gini_index(self , vertex , feat , categories):
+    def cal_gini_index(self , vertex , feat , vertex_data ):
         
         gini = 0 
-
-        for category in categories :
-            child_data = vertex.data[vertex.data[feat] == category]
+        for category in vertex.feats_dict[feat] :
+            child_data = vertex_data[vertex_data[feat] == category]
             child_depth = vertex.depth + 1 
-            if self.valid_leaf_check(vertex , child_data , child_depth) :
-                gini += (child_data.shape[0] / vertex.data.shape[0]) * self.conditional_probs_squared(child_data)
+            if self.possible_valid_child(vertex , child_data , child_depth) :
+                gini += (child_data.shape[0] / vertex_data.shape[0]) * self.conditional_probs_squared(child_data)
             else :
                 return None
         
         return gini 
 
-    def cal_gained_information(self , vertex , feat , categories):
+    def cal_gained_information(self , vertex , feat , vertex_data):
         
         childs_entropy = 0 
-
-        for category in categories :
-            child_data = vertex.data[vertex.data[feat] == category]
+        for category in vertex.feats_dict[feat] :
+            child_data = vertex_data[vertex_data[feat] == category]
             child_depth = vertex.depth + 1
-            if self.valid_leaf_check(vertex , child_data , child_depth) :
-                childs_entropy += (child_data.shape[0] / vertex.data.shape[0]) * self.cal_entropy(child_data)
+            if self.possible_valid_child(vertex , child_data , child_depth) :
+                childs_entropy += (child_data.shape[0] / vertex_data.shape[0]) * self.cal_entropy(child_data)
             else :
                 return None 
         
-        parent_entropy = self.cal_entropy(vertex.data)
+        parent_entropy = self.cal_entropy(vertex_data)
         return parent_entropy - childs_entropy
     
-    def new_leaf(self , vertex) :
+    def new_leaf(self , vertex , vertex_data) :
 
         self.num_leaf += 1 
-        num_0 = (vertex.data["satisfaction"] == 0).sum()
-        vertex.output_class = int(num_0 < (0.5 * vertex.data.shape[0])) + np.random.choice([0 , int(num_0 == (0.5 * vertex.data.shape[0]))])
+        num_0 = (vertex_data['satisfaction'] == 0 ).sum()
+        if num_0 == 0.5 * vertex_data.shape[0] :
+            vertex.output_class = np.random.choice([0,1])
+        else : 
+            vertex.output_class = int(num_0 < 0.5 * vertex_data.shape[0])
 
-    def tree_generation(self,vertex):
+    def tree_generation(self,vertex,vertex_data):
         
-        if self.impurity_check(vertex.data) and self.depth_check(vertex.depth) and self.min_split_check(vertex.data) and len(vertex.feats_dict.keys()) > 0 :
-            
-            # refactor 
+        if self.impurity_check(vertex_data) and self.depth_check(vertex.depth) and self.min_split_check(vertex_data) and len(vertex.feats_dict.keys()) > 0 :
             for feat in vertex.feats_dict.keys() :
                 if self.hyper_params["criterion"] == "gini" : 
-                    feat_gini = self.cal_gini_index(vertex , feat , vertex.feats_dict[feat])
-                    if feat_gini is not None and feat_gini <= vertex.gini :
-                        vertex.gini = feat_gini 
+                    feat_gini = self.cal_gini_index(vertex , feat , vertex_data)
+                    if feat_gini is not None and feat_gini <= vertex.crit["gini"] :
+                        vertex.crit["gini"] = feat_gini 
                         vertex.selected_feat = feat 
                 else :
-                    feat_gain = self.cal_gained_information(vertex , feat , vertex.feats_dict[feat])
-                    if feat_gain is not None and feat_gain >= vertex.gain :
-                        vertex.gain = feat_gain
+                    feat_gain = self.cal_gained_information(vertex , feat , vertex_data)
+                    if feat_gain is not None and feat_gain >= vertex.crit["gain"] :
+                        vertex.crit["gain"] = feat_gain
                         vertex.selected_feat = feat 
-            
-            # exception :( 
+
             if vertex.selected_feat is None :
-                self.new_leaf(vertex)
+                self.new_leaf(vertex , vertex_data)
             else :
                 for category in vertex.feats_dict.pop(vertex.selected_feat):
-                    vertex.child[category] = Node(vertex.depth + 1 , vertex.data[vertex.data[vertex.selected_feat] == category] , vertex.feats_dict.copy())
+                    vertex.child[category] = Node(vertex.feats_dict.copy() , vertex.depth + 1 , (vertex , category))
                     self.add_node(vertex.child[category])
-                    self.tree_generation(vertex.child[category])
+                    self.tree_generation(vertex.child[category],vertex_data[vertex_data[vertex.selected_feat] == category])
         else :
-            self.new_leaf(vertex)
+            self.new_leaf(vertex , vertex_data)
 
     def training(self , train_data , hyper_params , feats_dict):
         
-        self.root.data = train_data 
+        self.root = Node(feats_dict , 0 , None)
+        self.add_node(self.root)
         self.hyper_params = hyper_params
-        self.root.feats_dict = feats_dict
-        self.tree_generation(self.root)
+        self.tree_generation(self.root , train_data)
 
     def tree_traverse(self , sample , vertex):
+        
         if len(vertex.child.keys()) > 0 :
             return self.tree_traverse(sample , vertex.child[sample[vertex.selected_feat]]) 
         else :
@@ -150,7 +146,6 @@ class DecisionTree :
     def predict(self , test_data_X):
         
         predictions = [] 
-
         for _ , sample in test_data_X.iterrows():
             predictions.append(self.tree_traverse(sample , self.root))
 
@@ -160,21 +155,39 @@ class DecisionTree :
         
         TP = (predictions & test_data_Y).sum()
         FP = ((predictions ^ test_data_Y) & predictions).sum()
-        return TP / (TP + FP)
-    
+        try : 
+            return TP / (TP + FP)
+        except :
+            return 0 
+        
     def cal_recall(self , predictions , test_data_Y):
         
         TP = (predictions & test_data_Y).sum()
         FN = ((predictions ^ test_data_Y) & test_data_Y).sum()
-        return TP / (TP + FN)
+        try :
+            return TP / (TP + FN)
+        except : 
+            return 0 
+
+    def cal_F1(self , predictions , test_data_Y):
+
+        precision = self.cal_precision(predictions , test_data_Y)
+        recall = self.cal_recall(predictions , test_data_Y)
+        try :
+            return 2 * precision * recall / (precision + recall)
+        except :
+            return 0 
     
-    def F1_evaluation(self , test_data ):
+    def cal_accuracy(self , predictions , test_data_Y):
+
+        return (((predictions & test_data_Y) | (~predictions & ~test_data_Y)).sum()) / (test_data_Y.shape[0])
+
+    def tree_evaluation(self , test_data ):
         
-        test_data_Y = test_data['satisfaction']
+        test_data_Y = test_data['satisfaction'].astype(bool)
         test_data_X = test_data.drop(["satisfaction"] , axis = 1)
-        predictions = self.predict(test_data_X)
-        Precision = self.cal_precision(predictions , test_data_Y)
-        Recall = self.cal_recall(predictions , test_data_Y)
-        return 2 * Precision * Recall / (Precision + Recall )
-
-
+        predictions = self.predict(test_data_X).astype(bool)
+        F1_Score = self.cal_F1(predictions , test_data_Y)
+        acc = self.cal_accuracy(predictions , test_data_Y)
+        return F1_Score , acc 
+        
