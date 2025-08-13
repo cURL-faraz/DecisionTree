@@ -4,14 +4,15 @@ import pandas as pd
 
 class Node :
     
-    def __init__(self , feats_dict , depth , parent ):
+    def __init__(self , feats_dict , depth ):
     
         self.feats_dict = feats_dict 
         self.depth = depth 
-        self.parent = parent  
         self.child = {}
         self.selected_feat = None
         self.crit = {"gini" : float('inf') , 'gain' : float('-inf')}
+        self.pruned = False
+        self.output_class = None 
 
 class DecisionTree : 
     
@@ -76,17 +77,17 @@ class DecisionTree :
         parent_entropy = self.cal_entropy(vertex_data)
         return parent_entropy - childs_entropy
     
-    def new_leaf(self , vertex , vertex_data) :
-
+    def find_output_class(self , vertex_data):
+        
         num_0 = (vertex_data['satisfaction'] == 0 ).sum()
         if num_0 == 0.5 * vertex_data.shape[0] :
-            vertex.output_class = np.random.choice([0,1])
-        else : 
-            vertex.output_class = int(num_0 < 0.5 * vertex_data.shape[0])
+            return np.random.choice([0,1])
+        else :
+            return int(num_0 < 0.5 * vertex_data.shape[0]) 
 
     def tree_generation(self,vertex,vertex_data):
         
-        if self.impurity_check(vertex_data) and self.depth_check(vertex.depth) and self.min_split_check(vertex_data) and len(vertex.feats_dict.keys()) > 0 :
+        if self.impurity_check(vertex_data) and self.depth_check(vertex.depth) and self.min_split_check(vertex_data) and len(vertex.feats_dict) > 0 :
             for feat in vertex.feats_dict.keys() :
                 if self.hyper_params["criterion"] == "gini" : 
                     feat_gini = self.cal_gini_index(vertex , feat , vertex_data)
@@ -99,29 +100,28 @@ class DecisionTree :
                         vertex.crit["gain"] = feat_gain
                         vertex.selected_feat = feat 
 
-            if vertex.selected_feat is None :
-                self.new_leaf(vertex , vertex_data)
-            else :
+            vertex.output_class = self.find_output_class(vertex_data)
+            if vertex.selected_feat is not None  :
                 for category in vertex.feats_dict.pop(vertex.selected_feat):
-                    vertex.child[category] = Node(vertex.feats_dict.copy() , vertex.depth + 1 , (vertex , category))
+                    vertex.child[category] = Node(vertex.feats_dict.copy() , vertex.depth + 1)
                     self.add_node(vertex.child[category])
                     self.tree_generation(vertex.child[category],vertex_data[vertex_data[vertex.selected_feat] == category])
         else :
-            self.new_leaf(vertex , vertex_data)
-
+            vertex.output_class = self.find_output_class(vertex_data)
+    
     def training(self , train_data , hyper_params , feats_dict):
         
-        self.root = Node( feats_dict , 0 , None)
+        self.root = Node( feats_dict , 0 )
         self.add_node(self.root)
         self.hyper_params = hyper_params
         self.tree_generation(self.root , train_data)
 
     def tree_traverse(self , sample , vertex):
         
-        if len(vertex.child.keys()) > 0 :
+        if len(vertex.child.keys()) > 0 and not vertex.pruned :
             return self.tree_traverse(sample , vertex.child[sample[vertex.selected_feat]]) 
         else :
-            return vertex.output_class 
+            return vertex.output_class      
 
     def predict(self , test_data_X):
         
@@ -179,3 +179,12 @@ class DecisionTree :
             for category in vertex.child.keys():     
                 graph.edge(str(vertex.id),str(vertex.child[category].id),f'Category : {original_column_categories[vertex.selected_feat][category]}')
                 self.tree_visualization(vertex.child[category] , graph , original_column_categories)
+
+    def tree_post_pruning(self , primary_F1 , primary_Acc , test_data):
+        
+        for depth in sorted(self.nodes.keys() , reverse = True)[1:-1] :
+            for node in self.nodes[depth] :
+                if len(node.child) > 0 :
+                    node.pruned = True 
+                    current_F1 , current_Acc = self.tree_evaluation(test_data) 
+                    node.pruned = (( current_F1 * 0.3 + current_Acc * 0.7 ) >= (primary_F1 * 0.3 + primary_Acc * 0.7 ) )
