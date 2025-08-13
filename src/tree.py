@@ -17,7 +17,6 @@ class DecisionTree :
     
     def __init__(self):
         
-        self.num_leaf = 0 
         self.nodes = {}
 
     def add_node(self , vertex) :
@@ -38,22 +37,7 @@ class DecisionTree :
     def min_split_check(self , vertex_data):
 
         return vertex_data.shape[0] >= self.hyper_params["min_samples_split"]
-    
-    def soft_max_leaf_nodes_check(self):
-
-        return (self.hyper_params["soft_max_leaf_nodes"] is None) or (self.num_leaf < self.hyper_params["soft_max_leaf_nodes"])
-    
-    def soft_min_samples_leaf(self , child_data):
-
-        return child_data.shape[0] >= self.hyper_params["soft_min_samples_leaf"]
-    
-    def possible_valid_child(self , parent , child_data , child_depth):
-        
-        if self.impurity_check(child_data) and self.depth_check(child_depth) and self.min_split_check(child_data) and len(parent.feats_dict.keys()) > 1:
-            return True 
-        else :
-            return self.soft_max_leaf_nodes_check() and self.soft_min_samples_leaf(child_data)
-                
+               
     def conditional_probs_squared(self , child_data) : 
 
         prob_df = child_data.groupby('satisfaction').agg({"satisfaction" : "count"})
@@ -65,7 +49,7 @@ class DecisionTree :
         
         prob_df = data.groupby('satisfaction').agg({"satisfaction" : "count"})
         prob_df['satisfaction'] /= prob_df['satisfaction'].sum()
-        prob_df['satisfaction'] *= np.log2(prob_df['satisfaction'])
+        prob_df['satisfaction'] = np.where(prob_df['satisfaction'] > 0 , prob_df['satisfaction'] * np.log2(prob_df['satisfaction']) , 0)
         return (-1) * (prob_df['satisfaction'].sum())
     
     def cal_gini_index(self , vertex , feat , vertex_data ):
@@ -73,12 +57,9 @@ class DecisionTree :
         gini = 0 
         for category in vertex.feats_dict[feat] :
             child_data = vertex_data[vertex_data[feat] == category]
-            child_depth = vertex.depth + 1 
-            if self.possible_valid_child(vertex , child_data , child_depth) :
+            if not child_data.empty :
                 gini += (child_data.shape[0] / vertex_data.shape[0]) * self.conditional_probs_squared(child_data)
-            else :
-                return None
-        
+
         return gini 
 
     def cal_gained_information(self , vertex , feat , vertex_data):
@@ -86,18 +67,14 @@ class DecisionTree :
         childs_entropy = 0 
         for category in vertex.feats_dict[feat] :
             child_data = vertex_data[vertex_data[feat] == category]
-            child_depth = vertex.depth + 1
-            if self.possible_valid_child(vertex , child_data , child_depth) :
+            if not child_data.empty :
                 childs_entropy += (child_data.shape[0] / vertex_data.shape[0]) * self.cal_entropy(child_data)
-            else :
-                return None 
         
         parent_entropy = self.cal_entropy(vertex_data)
         return parent_entropy - childs_entropy
     
     def new_leaf(self , vertex , vertex_data) :
 
-        self.num_leaf += 1 
         num_0 = (vertex_data['satisfaction'] == 0 ).sum()
         if num_0 == 0.5 * vertex_data.shape[0] :
             vertex.output_class = np.random.choice([0,1])
@@ -110,12 +87,12 @@ class DecisionTree :
             for feat in vertex.feats_dict.keys() :
                 if self.hyper_params["criterion"] == "gini" : 
                     feat_gini = self.cal_gini_index(vertex , feat , vertex_data)
-                    if feat_gini is not None and feat_gini <= vertex.crit["gini"] :
+                    if feat_gini <= vertex.crit["gini"] :
                         vertex.crit["gini"] = feat_gini 
                         vertex.selected_feat = feat 
                 else :
                     feat_gain = self.cal_gained_information(vertex , feat , vertex_data)
-                    if feat_gain is not None and feat_gain >= vertex.crit["gain"] :
+                    if feat_gain >= vertex.crit["gain"] :
                         vertex.crit["gain"] = feat_gain
                         vertex.selected_feat = feat 
 
