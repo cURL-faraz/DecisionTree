@@ -24,11 +24,10 @@ def load_dataset():
     column_categories = detect_categories(dataset)
     return dataset , column_categories
 
-def encode_feats(dataset , column_categories):
-
-    dataset_dtypes = dataset.dtypes 
+def encode_feats(dataset , column_categories , quantile_feats_dict , equal_width_feats_dict):
+    
     for feat in column_categories.keys() : 
-        if dataset_dtypes[feat] not in [int , float] :
+        if feat not in quantile_feats_dict.keys() and feat not in equal_width_feats_dict.keys():
             categories =  column_categories[feat]
             categories = dict([(categories[i] , i) for i in range(len(categories))])
             dataset[feat] = dataset[feat].apply(lambda x : categories[x])
@@ -68,8 +67,9 @@ def quantile_binning(dataset , feats_dict , column_categories):
             quantiles = dataset[feat].quantile(np.linspace(0,1,k+1)).values 
             quantiles = np.unique(quantiles)
             column_categories[feat] = quantiles.tolist()
+            column_categories[feat] = [f'{column_categories[feat][i]} <= {feat} <= {column_categories[feat][i+1]}' for i in range(len(column_categories[feat])-1)]
             dataset[feat] = (np.searchsorted(quantiles , dataset[feat] , side = "right") - 1 ).astype(int)
-            dataset[feat] = np.clip(dataset[feat] , 0 , k-1)
+            dataset[feat] = np.clip(dataset[feat] , 0 , len(column_categories[feat])-1)
         except :
             print(f"{feat} isn't a valid column for quatile binning !")
 
@@ -80,7 +80,9 @@ def equal_width_binning(dataset , feats_dict , column_categories):
         try :
             bins = np.linspace(dataset[feat].min() , dataset[feat].max() , k+1)
             column_categories[feat] = bins.tolist()
+            column_categories[feat] = [f'{column_categories[feat][i]} <= {feat} <= {column_categories[feat][i+1]}' for i in range(len(column_categories[feat])-1)]
             dataset[feat] = (np.searchsorted(bins , dataset[feat] , side = "right") - 1).astype(int)
+            dataset[feat] = np.clip(dataset[feat] , 0 , len(column_categories[feat])-1)
         except :
             print(f"{feat} isn't a valid column for equal width binning !")
 
@@ -141,10 +143,11 @@ def dataset_preprocessing(drop_feats_list,numerical_fillna_feats_list,skewed_fea
     
     dataset , column_categories = load_dataset()
     dataset = drop_feats(dataset , drop_feats_list , column_categories)
-    encode_feats(dataset , column_categories)
+    encode_feats(dataset , column_categories , quantile_feats_dict , equal_width_feats_dict)
     numerical_fillna(dataset , numerical_fillna_feats_list)
     skew_reduction(dataset , skewed_feats_list)
     quantile_binning(dataset , quantile_feats_dict , column_categories)
     equal_width_binning(dataset , equal_width_feats_dict , column_categories)
     dataset = merge_into_super_feat(dataset , merging_feats_dict , column_categories)
+
     return dataset , column_categories

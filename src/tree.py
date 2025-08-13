@@ -5,7 +5,7 @@ import pandas as pd
 class Node :
     
     def __init__(self , feats_dict , depth , parent ):
-
+    
         self.feats_dict = feats_dict 
         self.depth = depth 
         self.parent = parent  
@@ -18,9 +18,12 @@ class DecisionTree :
     def __init__(self):
         
         self.nodes = {}
+        self.id = 0
 
     def add_node(self , vertex) :
         
+        vertex.id = self.id 
+        self.id += 1 
         try : 
             self.nodes[vertex.depth].append(vertex)
         except : 
@@ -108,7 +111,7 @@ class DecisionTree :
 
     def training(self , train_data , hyper_params , feats_dict):
         
-        self.root = Node(feats_dict , 0 , None)
+        self.root = Node( feats_dict , 0 , None)
         self.add_node(self.root)
         self.hyper_params = hyper_params
         self.tree_generation(self.root , train_data)
@@ -167,4 +170,12 @@ class DecisionTree :
         F1_Score = self.cal_F1(predictions , test_data_Y)
         acc = self.cal_accuracy(predictions , test_data_Y)
         return F1_Score , acc 
-        
+    
+    def tree_visualization(self , vertex , graph , original_column_categories) :
+        if vertex.selected_feat is None :
+            graph.node(str(vertex.id) , f'Class : {original_column_categories['satisfaction'][vertex.output_class]}')
+        else :
+            graph.node(str(vertex.id) , f'Feature : {vertex.selected_feat}\t{self.hyper_params["criterion"]} : {vertex.crit[self.hyper_params["criterion"]]}\ttested features : {list(vertex.feats_dict.keys())}')
+            for category in vertex.child.keys():     
+                graph.edge(str(vertex.id),str(vertex.child[category].id),f'Category : {original_column_categories[vertex.selected_feat][category]}')
+                self.tree_visualization(vertex.child[category] , graph , original_column_categories)
